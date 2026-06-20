@@ -1,0 +1,17 @@
+{
+  "name": "logging-service",
+  "version": "1.0.0",
+  "description": "Central logging API for incident analysis",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "mongoose": "^9.0.2"
+  }
+}
