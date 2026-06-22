@@ -5,18 +5,22 @@ import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { protect, login } from './controllers/authController.js';
+import correlationIdMiddleware from './middleware/correlationId.js';
 
 const app = express();
-app.set("trust proxy", 1)
+app.set('trust proxy', 1);
 app.use(
   cors({
     origin: `${process.env.FRONTEND_URL}`,
     credentials: true,
-  })
+  }),
 );
 
 app.use(cookieParser());
 app.use(morgan('dev'));
+
+// CorrelationId middleware to trace requests across services.
+app.use(correlationIdMiddleware);
 
 app.post('/auth', express.json(), login);
 
@@ -28,12 +32,13 @@ app.use(
     changeOrigin: true,
     on: {
       proxyReq: (proxyReq, req, res) => {
+        proxyReq.setHeader('x-correlation-id', req.correlationId);
         if (req.user) {
           proxyReq.setHeader('x-user', JSON.stringify(req.user));
         }
       },
     },
-  })
+  }),
 );
 
 app.use(
@@ -49,7 +54,7 @@ app.use(
         }
       },
     },
-  })
+  }),
 );
 
 app.use(
@@ -65,7 +70,7 @@ app.use(
         }
       },
     },
-  })
+  }),
 );
 
 // error handling middleware for gateway.
