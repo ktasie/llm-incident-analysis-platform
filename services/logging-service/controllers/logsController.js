@@ -2,7 +2,7 @@ import Log from '../models/logModel.js';
 
 const createLog = async (req, res) => {
   try {
-    const { service, severity, correlationId, message, metadata, timestamp } = req.body;
+    const { service, severity, correlationId, event, message, metadata, timestamp } = req.body;
 
     if (!service || !severity || !message) {
       const err = new Error('service, severity, and message are required');
@@ -14,6 +14,7 @@ const createLog = async (req, res) => {
       service: service.toLowerCase(),
       severity: severity.toUpperCase(),
       correlationId: correlationId || null,
+      event: event || null,
       message,
       metadata: metadata || {},
       timestamp: timestamp ? new Date(timestamp) : new Date(),

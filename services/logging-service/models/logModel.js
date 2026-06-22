@@ -7,9 +7,10 @@ const logSchema = new mongoose.Schema(
     severity: {
       type: String,
       required: true,
-      enum: ['DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL', 'FATAL'],
+      enum: ['INFO', 'WARN', 'ERROR'],
       default: 'INFO',
     },
+    event: { type: String, default: null },
     correlationId: { type: String, default: null },
     message: { type: String, required: true },
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
