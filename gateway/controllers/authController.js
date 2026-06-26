@@ -1,6 +1,8 @@
 import { promisify } from 'util';
 import fs from 'fs';
 import jwt from 'jsonwebtoken';
+import logger from '../utils/logger.js';
+import createDownstreamServiceErrorHandler from '../middleware/downstreamServiceError.js';
 
 //const PRIVATE_KEY_PATH = process.env.JWT_PRIVATE_KEY_PATH || "/keys/jwt_rsa";
 const PUBLIC_KEY_PATH = process.env.JWT_PUBLIC_KEY_PATH || './../keys/jwt_rsa.pub';
@@ -8,26 +10,79 @@ const PUBLIC_KEY_PATH = process.env.JWT_PUBLIC_KEY_PATH || './../keys/jwt_rsa.pu
 // Read public key from filesystem to decode jwt
 const pubKey = fs.readFileSync(PUBLIC_KEY_PATH, 'utf8');
 
+// Middleware to protect routes by verifying JWT tokens and attaching user information to the request object.
 const protect = async (req, res, next) => {
   try {
     let token;
-    // 1. Get token and check if its there
+    let tokenAuthType = null;
 
+    // Check for token in Authorization header or cookies
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
+      tokenAuthType = 'Bearer';
     } else {
       token = req.cookies.jwt;
+      tokenAuthType = 'Cookie';
     }
 
+    // 2. If token is not present, log the event and return an error
     if (!token) {
+      void logger.warn({
+        correlationId: req.correlationId || null,
+        event: 'JWT_MISSING',
+        message: 'Authorization header is missing from the request',
+        metadata: {
+          method: req.method,
+          path: req.originalUrl || req.url,
+          clientIp: req.ip,
+        },
+      });
+
       const err = new Error('You are not logged in! Please log in to get access.');
       err.statusCode = 401;
-      return next(err);
+      //return next(err);
+      throw err;
+      return;
     }
 
-    const decoded = await promisify(jwt.verify)(token, pubKey, { algorithms: 'RS256' });
+    // 3. Verify the token using the public key and handle any verification errors
+    let decoded;
 
+    try {
+      decoded = await promisify(jwt.verify)(token, pubKey, { algorithms: 'RS256' });
+    } catch (verifyErr) {
+      void logger.warn({
+        correlationId: req.correlationId || null,
+        event: 'JWT_INVALID',
+        message: 'JWT token validation failed in the gateway',
+        metadata: {
+          method: req.method,
+          path: req.originalUrl || req.url,
+          failureReason: verifyErr.name || 'JWT verification failed',
+          errorMessage: verifyErr.message,
+        },
+      });
+
+      const err = new Error('Invalid token! Please log in again.');
+      err.statusCode = 401;
+      //return next(err);
+      throw err;
+      return;
+    }
+
+    // 4. Attach the decoded user information to the request object and log the successful validation
     req.user = decoded.user;
+    void logger.info({
+      correlationId: req.correlationId || null,
+      event: 'JWT_VALIDATED',
+      message: 'JWT token successfully validated by the gateway',
+      metadata: {
+        userId: req.user?._id || req.user?.id || null,
+        method: req.method,
+        path: req.originalUrl || req.url,
+        tokenAuthType,
+      },
+    });
     //console.log(req.user)
     next();
   } catch (err) {
@@ -38,6 +93,7 @@ const protect = async (req, res, next) => {
   }
 };
 
+// Controller function to handle user login by forwarding the request to the authentication service and setting a JWT cookie upon successful authentication.
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -49,12 +105,14 @@ const login = async (req, res) => {
       headers: { 'content-Type': 'application/json' },
       body: raw,
     };
+
     const resp = await fetch(`${process.env.AUTH_SERVICE}/api/v1/login`, reqOptions);
+
     const data = await resp.json();
     // console.log(data);
     if (data.status === 'fail') {
       const err = new Error(data.message);
-      err.statusCode = 401;
+      err.statusCode = resp.status || 401;
       throw err;
     }
 
@@ -79,9 +137,27 @@ const login = async (req, res) => {
       data: data.data,
     });
   } catch (err) {
-    //console.log(err.data);
-    res.status(err.statusCode).json({ status: 'fail', message: err.message });
+    const responseTimeMs =
+      typeof req.downstreamRequestStartedAt === 'number' ? Date.now() - req.downstreamRequestStartedAt : null;
+    const downstreamStatusCode = typeof err?.statusCode === 'number' ? err.statusCode : null;
+
+    await logger.error({
+      correlationId: req.correlationId || null,
+      event: 'DOWNSTREAM_SERVICE_ERROR',
+      message: 'Downstream microservice request failed',
+      metadata: {
+        targetServiceName: 'auth-service',
+        method: req.method,
+        requestRoute: req.originalUrl || req.url,
+        downstreamStatusCode,
+        errorMessage: err?.message || 'Downstream service request failed',
+        responseTimeMs,
+      },
+    });
+
+    res.status(err.statusCode || 500).json({ status: 'fail', message: err.message });
   }
 };
 
+// Export the protect middleware and login controller for use in other parts of the application.
 export { protect, login };
