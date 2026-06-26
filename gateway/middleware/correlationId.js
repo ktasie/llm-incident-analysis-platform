@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import logger from '../utils/logger.js';
 
 const correlationIdMiddleware = (req, res, next) => {
+  req.gatewayRequestStartedAt = Date.now();
+
   const incomingCorrelationId = req.get('x-correlation-id');
   const correlationId = incomingCorrelationId && incomingCorrelationId.trim() ? incomingCorrelationId : crypto.randomUUID();
 
