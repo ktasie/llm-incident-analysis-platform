@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { BlobServiceClient } from '@azure/storage-blob';
 
 import Photo from './../models/photoModel.js';
+import logger from '../utils/logger.js';
 
 const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
 
@@ -10,6 +11,17 @@ const containerClient = blobServiceClient.getContainerClient(process.env.AZURE_C
 // create container if it was not created.
 await containerClient.createIfNotExists();
 await containerClient.setAccessPolicy('blob');
+
+const getCorrelationId = (req) => req.correlationId || req.get('x-correlation-id') || null;
+
+const logPhotoUploadEvent = (req, event, message, metadata) => {
+  void logger.info({
+    correlationId: getCorrelationId(req),
+    event,
+    message,
+    metadata,
+  });
+};
 
 const getOnePhoto = async (req, res) => {
   try {
@@ -76,6 +88,17 @@ const uploadPhoto = async (req, res) => {
 
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
+    logPhotoUploadEvent(req, 'PHOTO_UPLOAD_STARTED', 'Photo upload started', {
+      userId,
+      title,
+      location,
+      peoplePresent,
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      fileSize: req.file.size,
+      blobName,
+    });
+
     await blockBlobClient.uploadData(req.file.buffer, {
       blobHTTPHeaders: {
         blobContentType: req.file.mimetype,
@@ -97,6 +120,13 @@ const uploadPhoto = async (req, res) => {
       peoplePresent,
       imageUrl,
       blobName,
+    });
+
+    logPhotoUploadEvent(req, 'PHOTO_UPLOAD_COMPLETED', 'Photo upload completed successfully', {
+      userId,
+      photoId: newPhoto._id,
+      blobName,
+      fileName: req.file.originalname,
     });
 
     // console.log(newComment);

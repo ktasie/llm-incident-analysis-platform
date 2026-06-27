@@ -15,6 +15,10 @@ const __dirname = path.dirname(__filename);
 // Middlewares
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+app.use((req, res, next) => {
+  req.correlationId = req.get('x-correlation-id')?.trim() || null;
+  next();
+});
 
 // Routes
 app.use('/api/v1/', photoRoute);
