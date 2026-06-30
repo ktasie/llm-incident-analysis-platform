@@ -47,16 +47,14 @@ const goToDashboard = async (req, res) => {
     })
   ).json();
   //console.log(uploads);
-  res
-    .status(200)
-    .render('dashboard', {
-      title: 'Dashboard',
-      pretty: true,
-      user: req.locals,
-      uploads,
-      apiUrl: api_url,
-      frontendUrl: frontend_url,
-    });
+  res.status(200).render('dashboard', {
+    title: 'Dashboard',
+    pretty: true,
+    user: req.locals,
+    uploads,
+    apiUrl: api_url,
+    frontendUrl: frontend_url,
+  });
 };
 
 const uploadPhoto = async (req, res) => {
@@ -74,22 +72,34 @@ const getPhoto = async (req, res) => {
     })
   ).json();
 
-  const likeCount = await (
-    await fetch(`${process.env.API_GATEWAY}/like/${imageId}`, {
-      method: 'GET',
-      headers: { Cookie: req.headers.cookie || '' },
-    })
-  ).json();
+  // defaults
+  let likeCount = { Likes: 0 };
+  let comment = { data: { authorEmail: '', comment: '' } };
 
-  // get comments
-  const comment = await (
-    await fetch(`${process.env.API_GATEWAY}/comment/${imageId}`, {
-      method: 'GET',
-      headers: { Cookie: req.headers.cookie || '' },
-    })
-  ).json();
+  try {
+    likeCount = await (
+      await fetch(`${process.env.API_GATEWAY}/like/${imageId}`, {
+        method: 'GET',
+        headers: { Cookie: req.headers.cookie || '' },
+      })
+    ).json();
+  } catch (err) {
+    // Handle error gracefully, log it, and continue with default likeCount
+    console.error('Error fetching like count:', err);
+  }
 
-  // console.log(comment);
+  try {
+    // get comments
+    comment = await (
+      await fetch(`${process.env.API_GATEWAY}/comment/${imageId}`, {
+        method: 'GET',
+        headers: { Cookie: req.headers.cookie || '' },
+      })
+    ).json();
+  } catch (err) {
+    // Handle error gracefully, log it, and continue with default comment
+    console.error('Error fetching comments:', err);
+  }
 
   res.status(200).render('single', {
     title: 'image-title',

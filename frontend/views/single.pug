@@ -19,7 +19,7 @@ block content
                         button#like.action-btn &#x1F44D; 
                         button#disLike.action-btn  &#x1F44E;
                         button.action-btn &#x1F4E4;
-                    .post-likes #{likeCount.Likes} likes
+                    .post-likes #{likeCount.Likes } likes
                     .post-caption
                         |               #{image.caption}, 
                         |
@@ -36,7 +36,7 @@ block content
                                 p
                                     strong= comment.authorEmail
                                     | 
-                                    | #{comment.comment}                            
+                                    | #{comment.comment }                            
                         br
                         form
                             input#imageId(type='hidden' value=`${image._id}`)

@@ -1,6 +1,7 @@
 import express from 'express';
 import { uploadPhoto, getPhotos, getOnePhoto } from './../controllers/photoController.js';
 import multer from 'multer';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 const storage = multer.memoryStorage();
