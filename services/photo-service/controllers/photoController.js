@@ -22,6 +22,22 @@ const getOnePhoto = async (req, res) => {
     const imageId = req.params.imageId;
     const photo = await Photo.findById(imageId);
 
+    if (!photo) {
+      void logger.warn({
+        correlationId: req.correlationId || null,
+        event: 'PHOTO_NOT_FOUND',
+        message: 'Requested photo not found',
+        metadata: {
+          imageId,
+        },
+      });
+      res.status(404).json({
+        status: 'fail',
+        message: `Photo with ID ${imageId} not found`,
+      });
+      return;
+    }
+
     res.status(200).json({
       status: 'Success',
       photo,
@@ -80,6 +96,7 @@ const uploadPhoto = async (req, res) => {
     // construct blob name
     const blobName = objectId.toString() + ext;
 
+    // Get a block blob client
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
     // Log the start of the upload event
@@ -97,6 +114,7 @@ const uploadPhoto = async (req, res) => {
       },
     });
 
+    // Upload the file to Azure Blob Storage
     await blockBlobClient.uploadData(req.file.buffer, {
       blobHTTPHeaders: {
         blobContentType: req.file.mimetype,
