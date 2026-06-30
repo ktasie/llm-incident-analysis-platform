@@ -6,6 +6,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 // import cookieParser from 'cookie-parser';
 import photoRoute from './routes/photoRoute.js';
+import logger from './utils/logger.js';
 
 const port = process.env.PORT || 4004;
 const app = express();
@@ -45,12 +46,25 @@ if (process.env.NODE_ENV === 'development') {
     });
 }
 
-
 // Error handling middleware for the photo service.
 app.use((err, req, res, next) => {
-  res.status(err.statusCode || 500).json({  
+  // Log the error details for debugging and monitoring purposes.
+  void logger.error({
+    correlationId: req.correlationId || null,
+    event: 'SERVICE_EXCEPTION',
+    message: 'Unhandled exception in the photo service',
+    metadata: {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      errorMessage: err?.message || 'Unexpected photo service error',
+      stackTrace: err?.stack || null,
+    },
+  });
+
+  // Send a JSON response with the error details.
+  res.status(err.statusCode || 500).json({
     status: 'fail',
-    message: err.message || 'Internal Server Error'
+    message: err.message || 'Internal Server Error',
   });
 });
 

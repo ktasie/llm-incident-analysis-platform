@@ -41,5 +41,22 @@ const logger = {
   },
 };
 
+const withOperationTimeoutLog = async (req, operation, message, metadata = {}, timeoutMs = 5000) => {
+  const timeoutId = setTimeout(() => {
+    void logger.error({
+      correlationId: req.correlationId || null,
+      event: 'OPERATION_TIMEOUT',
+      message,
+      metadata,
+    });
+  }, timeoutMs);
+
+  try {
+    return await operation();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 export default logger;
-export { logger };
+export { logger, withOperationTimeoutLog };

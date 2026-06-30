@@ -3,25 +3,51 @@ import mongoose from 'mongoose';
 import { BlobServiceClient } from '@azure/storage-blob';
 
 import Photo from './../models/photoModel.js';
-import logger from '../utils/logger.js';
+import { logger, withOperationTimeoutLog } from '../utils/logger.js';
+
+const timeout = process.env.OPERATION_TIMEOUT ? parseInt(process.env.OPERATION_TIMEOUT, 10) : 5000; // Default to 5 seconds if not set
 
 // Initialize Azure Blob Service Client
 const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
 
-//
+// Get a reference to the container client for the specified container name
 const containerClient = blobServiceClient.getContainerClient(process.env.AZURE_CONTAINER_NAME);
 
 // create container if it was not created.
 await containerClient.createIfNotExists();
 await containerClient.setAccessPolicy('blob');
 
-//const getCorrelationId = (req) => req.correlationId || req.get('x-correlation-id') || null;
-
+// Controller to handle photo retrieval by ID
 const getOnePhoto = async (req, res) => {
   try {
+    let photo;
     const imageId = req.params.imageId;
-    const photo = await Photo.findById(imageId);
 
+    try {
+      // Query database for the photo with a timeout
+      photo = await withOperationTimeoutLog(
+        req,
+        () => Photo.findById(imageId),
+        'Photo retrieval operation exceeded timeout',
+        { operation: 'Photo.findById', imageId },
+        timeout,
+      );
+    } catch (err) {
+      // Log the database query failure event
+      void logger.error({
+        correlationId: req.correlationId || null,
+        event: 'DATABASE_QUERY_FAILED',
+        message: 'Failed to query the database for photo retrieval',
+        metadata: {
+          imageId,
+          errorMessage: err.message,
+        },
+      });
+
+      throw err;
+    }
+
+    // If the photo is not found, log a warning and return a 404 response
     if (!photo) {
       void logger.warn({
         correlationId: req.correlationId || null,
@@ -38,11 +64,13 @@ const getOnePhoto = async (req, res) => {
       return;
     }
 
+    // Log the successful photo retrieval event
     res.status(200).json({
       status: 'Success',
       photo,
     });
   } catch (err) {
+    // Log the error details for debugging and monitoring purposes
     res.status(err.statusCode || 500).json({
       status: 'fail',
       message: `${err.message}`,
@@ -50,17 +78,34 @@ const getOnePhoto = async (req, res) => {
   }
 };
 
-// For this assignment we would get all photos since the data will be very small and filter within the frontend webapp.
+// Controller to handle retrieval of all photos
 const getPhotos = async (req, res) => {
   try {
-    const allPhotos = await Photo.find();
+    // Query the database for all photos with a timeout
+    const allPhotos = await withOperationTimeoutLog(
+      req,
+      () => Photo.find(),
+      'Photo list query exceeded the timeout threshold',
+      { operation: 'Photo.find' },
+      timeout,
+    );
 
+    // Log the successful retrieval of all photos
     res.status(200).json({
       status: 'Success',
       count: allPhotos.length,
       allPhotos,
     });
   } catch (err) {
+    void logger.error({
+      correlationId: req.correlationId || null,
+      event: 'DATABASE_QUERY_FAILED',
+      message: 'Photo list query failed',
+      metadata: {
+        errorMessage: err.message,
+      },
+    });
+
     res.status(err.statusCode || 500).json({
       status: 'fail',
       message: `${err.message}`,
@@ -68,6 +113,7 @@ const getPhotos = async (req, res) => {
   }
 };
 
+// Controller to handle photo uploads
 const uploadPhoto = async (req, res) => {
   try {
     if (req.headers['x-user']) {
@@ -114,13 +160,38 @@ const uploadPhoto = async (req, res) => {
       },
     });
 
-    // Upload the file to Azure Blob Storage
-    await blockBlobClient.uploadData(req.file.buffer, {
-      blobHTTPHeaders: {
-        blobContentType: req.file.mimetype,
-        blobContentDisposition: 'inline',
-      },
-    });
+    try {
+      // Upload the file to Azure Blob Storage with a timeout
+      await withOperationTimeoutLog(
+        req,
+        () =>
+          blockBlobClient.uploadData(req.file.buffer, {
+            blobHTTPHeaders: {
+              blobContentType: req.file.mimetype,
+              blobContentDisposition: 'inline',
+            },
+          }),
+        'Photo upload to Azure Blob Storage exceeded the timeout threshold',
+        { operation: 'BlockBlobClient.uploadData', blobName, fileName: req.file.originalname },
+        timeout,
+      );
+    } catch (err) {
+      // Log the upload failure event
+      void logger.error({
+        correlationId: req.correlationId || null,
+        event: 'BLOB_UPLOAD_FAILED',
+        message: 'Failed to upload photo to Azure Blob Storage',
+        metadata: {
+          userId,
+          fileName: req.file.originalname,
+          mimeType: req.file.mimetype,
+          fileSize: req.file.size,
+          blobName,
+          errorMessage: err.message,
+        },
+      });
+      throw new Error('Failed to upload photo to storage');
+    }
 
     // quick fix for containers with azurite.
     const imageUrl =
@@ -128,15 +199,40 @@ const uploadPhoto = async (req, res) => {
         ? blockBlobClient.url.replace('http://azurite:10000', 'http://localhost:10000')
         : blockBlobClient.url;
 
-    const newPhoto = await Photo.create({
-      uploadedBy: userId,
-      title,
-      caption,
-      location,
-      peoplePresent,
-      imageUrl,
-      blobName,
-    });
+    let newPhoto;
+
+    try {
+      // Save photo metadata to the database with a timeout
+      newPhoto = await withOperationTimeoutLog(
+        req,
+        () =>
+          Photo.create({
+            uploadedBy: userId,
+            title,
+            caption,
+            location,
+            peoplePresent,
+            imageUrl,
+            blobName,
+          }),
+        'Photo metadata write exceeded the timeout threshold',
+        { operation: 'Photo.create', userId, blobName },
+        timeout,
+      );
+    } catch (err) {
+      // Log the database write failure event
+      void logger.error({
+        correlationId: req.correlationId || null,
+        event: 'DATABASE_QUERY_FAILED',
+        message: 'Photo metadata write failed',
+        metadata: {
+          userId,
+          blobName,
+          errorMessage: err.message,
+        },
+      });
+      throw err;
+    }
 
     // Log the successful upload event
     void logger.info({

@@ -48,12 +48,15 @@ const uploadForm = async (e) => {
     const response = await fetch(`${window.apiUrl}/upload`, requestOptions);
     if (!response.ok) {
       // HTTP error (4xx / 5xx)
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const error = await response.json();
+      //console.log(error);
+      throw new Error(`${error.message}`);
     }
     const result = await response.json();
     if (result.status === 'success') {
       //console.log(result);
       clearFields();
+      document.querySelector('.upload-area .upload-text').textContent = 'Drag photos here';
       domStrings.notice.textContent = 'Upload was successful! ...';
       domStrings.notice.style.backgroundColor = 'green';
     } else if (result.status === 'fail') {
@@ -61,9 +64,10 @@ const uploadForm = async (e) => {
     }
   } catch (err) {
     clearFields();
+    document.querySelector('.upload-area .upload-text').textContent = 'Drag photos here';
     domStrings.notice.textContent = `${err.message}`;
     domStrings.notice.style.backgroundColor = 'red';
-    console.log(err);
+    // console.log(err);
   }
 };
 

@@ -35,7 +35,7 @@ app.use(cookieParser());
 // Routes
 app.use('/', viewsRoute);
 
-// error handling middleware for gateway.
+// error handling middleware for frontend.
 app.use((err, req, res, next) => {
   res.status(err.statusCode || 500).json({
     status: 'fail',
