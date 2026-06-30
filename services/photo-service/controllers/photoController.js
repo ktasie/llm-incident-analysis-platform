@@ -3,18 +3,40 @@ import mongoose from 'mongoose';
 import { BlobServiceClient } from '@azure/storage-blob';
 
 import Photo from './../models/photoModel.js';
+import logger from '../utils/logger.js';
 
+// Initialize Azure Blob Service Client
 const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
 
+//
 const containerClient = blobServiceClient.getContainerClient(process.env.AZURE_CONTAINER_NAME);
+
 // create container if it was not created.
 await containerClient.createIfNotExists();
 await containerClient.setAccessPolicy('blob');
+
+//const getCorrelationId = (req) => req.correlationId || req.get('x-correlation-id') || null;
 
 const getOnePhoto = async (req, res) => {
   try {
     const imageId = req.params.imageId;
     const photo = await Photo.findById(imageId);
+
+    if (!photo) {
+      void logger.warn({
+        correlationId: req.correlationId || null,
+        event: 'PHOTO_NOT_FOUND',
+        message: 'Requested photo not found',
+        metadata: {
+          imageId,
+        },
+      });
+      res.status(404).json({
+        status: 'fail',
+        message: `Photo with ID ${imageId} not found`,
+      });
+      return;
+    }
 
     res.status(200).json({
       status: 'Success',
@@ -74,8 +96,25 @@ const uploadPhoto = async (req, res) => {
     // construct blob name
     const blobName = objectId.toString() + ext;
 
+    // Get a block blob client
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
+    // Log the start of the upload event
+    void logger.info({
+      correlationId: req.correlationId || null,
+      event: 'PHOTO_UPLOAD_STARTED',
+      message: 'Photo upload started',
+      metadata: {
+        userId,
+        title,
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        blobName,
+      },
+    });
+
+    // Upload the file to Azure Blob Storage
     await blockBlobClient.uploadData(req.file.buffer, {
       blobHTTPHeaders: {
         blobContentType: req.file.mimetype,
@@ -97,6 +136,19 @@ const uploadPhoto = async (req, res) => {
       peoplePresent,
       imageUrl,
       blobName,
+    });
+
+    // Log the successful upload event
+    void logger.info({
+      correlationId: req.correlationId || null,
+      event: 'PHOTO_UPLOAD_COMPLETED',
+      message: 'Photo upload completed successfully',
+      metadata: {
+        userId,
+        photoId: newPhoto._id,
+        blobName,
+        fileName: req.file.originalname,
+      },
     });
 
     // console.log(newComment);
