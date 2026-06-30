@@ -102,7 +102,7 @@ const login = async (req, res) => {
 
     const reqOptions = {
       method: 'POST',
-      headers: { 'content-Type': 'application/json' },
+      headers: { 'content-Type': 'application/json', 'x-correlation-id': req.correlationId || null },
       body: raw,
     };
 
