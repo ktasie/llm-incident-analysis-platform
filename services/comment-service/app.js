@@ -6,6 +6,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 // import cookieParser from 'cookie-parser';
 import commentRoute from './routes/commentRoute.js';
+import logger from './utils/logger.js';
 
 const port = process.env.PORT || 4002;
 const app = express();
@@ -16,8 +17,34 @@ const __dirname = path.dirname(__filename);
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
+// Correlation ID middleware to trace requests across services.
+app.use((req, res, next) => {
+  req.correlationId = req.get('x-correlation-id')?.trim() || null;
+  next();
+});
+
 // Routes
 app.use('/api/v1/', commentRoute);
+
+// Error handling middleware for the comment service.
+app.use((err, req, res, next) => {
+  void logger.error({
+    correlationId: req.correlationId || null,
+    event: 'SERVICE_EXCEPTION',
+    message: 'Unhandled exception in the comment service',
+    metadata: {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      errorMessage: err?.message || 'Unexpected comment service error',
+      stackTrace: err?.stack || null,
+    },
+  });
+
+  res.status(err.statusCode || 500).json({
+    status: 'fail',
+    message: err.message || 'Internal Server Error',
+  });
+});
 
 // Database connection.
 if (process.env.NODE_ENV === 'development') {
