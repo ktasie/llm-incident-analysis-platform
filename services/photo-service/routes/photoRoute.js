@@ -13,11 +13,16 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, //5mb limit
   fileFilter: (req, file, cb) => {
     if (!allowedMimeTypes.has(file.mimetype)) {
-      logPhotoEvent('warn', req, 'INVALID_FILE_TYPE', 'Unsupported file type rejected for photo upload', {
-        fieldName: file.fieldname,
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        allowedMimeTypes: Array.from(allowedMimeTypes),
+      void logger.warn({
+        correlationId: req.correlationId || null,
+        event: 'INVALID_FILE_TYPE',
+        message: 'Unsupported file type rejected for photo upload',
+        metadata: {
+          fieldName: file.fieldname,
+          fileName: file.originalname,
+          mimeType: file.mimetype,
+          allowedMimeTypes: Array.from(allowedMimeTypes),
+        },
       });
 
       const error = new Error(invalidFileTypeMessage);

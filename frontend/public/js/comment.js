@@ -33,6 +33,8 @@ const submitComment = async (e) => {
 
     const response = await fetch(`${window.apiUrl}/comment`, requestOptions);
     if (!response.ok) {
+      //const err = await response.json();
+      //throw new Error(`${err.message}`);
       // HTTP error (4xx / 5xx)
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -49,7 +51,10 @@ const submitComment = async (e) => {
     } else if (result.status === 'fail') {
       throw new Error(`${result.message}`);
     }
-  } catch (err) {}
+  } catch (err) {
+    alert('Comment submission failed. Please try again later.');
+    console.log(err);
+  }
 };
 
 const likePhoto = async (e) => {
