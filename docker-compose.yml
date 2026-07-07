@@ -75,9 +75,41 @@ services:
       - mongo
       - azurite
 
+  logging-service:
+    build:
+      context: ./services/logging-service
+      dockerfile: Dockerfile
+    env_file:
+      - ./services/logging-service/.env.docker
+    ports:
+      - '4005:4005'
+    depends_on:
+      - mongo
+
+  incident-analysis-service:
+    build:
+      context: ./services/incident-analysis-service
+      dockerfile: Dockerfile
+    env_file:
+      - ./services/incident-analysis-service/.env.docker
+    ports:
+      - '4006:4006'
+    depends_on:
+      - logging-service
+
+  incident-dashboard:
+    build:
+      context: ./incident-dashboard
+      dockerfile: Dockerfile
+    env_file:
+      - ./incident-dashboard/.env.docker
+    ports:
+      - '3001:3001'
+    depends_on:
+      - gateway
+
   mongo:
     image: mongo:7
-    container_name: mongo
     restart: unless-stopped
     ports:
       - '27017:27017'
@@ -86,7 +118,6 @@ services:
 
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite
-    container_name: azurite
     command: azurite --blobHost 0.0.0.0
     restart: unless-stopped
     ports:
