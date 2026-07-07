@@ -1,0 +1,19 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1.0")
+    title AI Incident Analysis
+    link(rel="stylesheet" href="/styles.css")
+  body
+    .container
+      h1 AI Incident Analysis
+      if error
+        p.error #{error}
+      else if analysis
+        h2 Analysis Result
+        pre #{JSON.stringify(analysis, null, 2)}
+      else
+        p No analysis result available.
+
+      a(href="/") Back

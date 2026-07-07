@@ -1,0 +1,17 @@
+{
+  "name": "incident-dashboard",
+  "version": "1.0.0",
+  "description": "Minimal dashboard for log search and AI incident analysis",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "pug": "^3.0.2"
+  }
+}
