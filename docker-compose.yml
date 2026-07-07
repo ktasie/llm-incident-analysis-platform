@@ -74,8 +74,6 @@ services:
     depends_on:
       - mongo
       - azurite
-    volumes:
-      - ./keys/jwt_rsa.pub:/keys/jwt_rsa.pub:ro
 
   logging-service:
     build:
