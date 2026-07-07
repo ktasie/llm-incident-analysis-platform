@@ -5,7 +5,8 @@ const correlationIdMiddleware = (req, res, next) => {
   req.gatewayRequestStartedAt = Date.now();
 
   const incomingCorrelationId = req.get('x-correlation-id');
-  const correlationId = incomingCorrelationId && incomingCorrelationId.trim() ? incomingCorrelationId : crypto.randomUUID();
+  const correlationId =
+    incomingCorrelationId && incomingCorrelationId.trim() ? incomingCorrelationId : crypto.randomUUID();
 
   req.correlationId = correlationId;
   req.headers['x-correlation-id'] = correlationId;
