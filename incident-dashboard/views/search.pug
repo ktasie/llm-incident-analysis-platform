@@ -1,0 +1,41 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1.0")
+    title Log Search Results
+    link(rel="stylesheet" href="/styles.css")
+  body
+    .container
+      h1 Log Search Results
+      if logs.length
+        p #{count} logs found.
+        table
+          thead
+            tr
+              th Timestamp
+              th Service
+              th Severity
+              th Event
+              th Correlation ID
+              th Message
+              th Meta data
+          tbody
+            each log in logs
+              tr
+                td #{new Date(log.timestamp).toISOString()}
+                td #{log.service}
+                td #{log.severity}
+                td #{log.event}
+                td #{log.correlationId || '-'}
+                td #{log.message}
+                td
+                  if log.metadata
+                    pre #{JSON.stringify(log.metadata, null, 2)}
+                  else
+                    | -
+
+      else
+        p No logs match your query.
+
+      a(href="/") Back

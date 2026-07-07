@@ -1,0 +1,25 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1.0")
+    title Incident Dashboard
+    link(rel="stylesheet" href="/styles.css")
+  body
+    .container
+      h1 Incident Dashboard
+      p Use this dashboard to search logs and request LLM-assisted incident analysis.
+
+      form(method="post" action="/search")
+        fieldset
+          legend Log search
+          label(for="correlationId") Correlation ID
+          input#correlationId(type="text" name="correlationId")
+          button(type="submit") Search logs
+
+      form(method="post" action="/analyze")
+        fieldset
+          legend AI Analysis
+          label(for="analysisCorrelationId") Correlation ID
+          input#analysisCorrelationId(type="text" name="correlationId")
+          button(type="submit") Run AI analysis
