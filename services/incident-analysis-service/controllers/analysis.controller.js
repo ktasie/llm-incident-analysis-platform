@@ -21,9 +21,8 @@ const analyzeIncident = async (req, res) => {
 
     res.status(200).json({
       status: 'success',
+      model: process.env.OPENAI_MODEL,
       data: {
-        correlationId: correlationId || null,
-        logsCount: logs.length,
         analysis,
       },
     });

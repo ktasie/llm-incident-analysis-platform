@@ -160,17 +160,38 @@ const uploadPhoto = async (req, res) => {
       },
     });
 
+    // Simulate an unexpected exception for testing purposes if the environment variable is set
+    try {
+      if (process.env.SIMULATE_PHOTO_EXCEPTION === 'true') {
+        throw new Error('Simulated unexpected exception during photo upload');
+      }
+    } catch (err) {
+      void logger.error({
+        correlationId: req.correlationId || null,
+        event: 'SERVICE_EXCEPTION',
+        message: 'Unexpected exception during photo upload',
+        metadata: { userId, fileName: req.file.originalname, errorMessage: err.message },
+      });
+      throw new Error('Internal server error');
+    }
+
     try {
       // Upload the file to Azure Blob Storage with a timeout
       await withOperationTimeoutLog(
         req,
-        () =>
-          blockBlobClient.uploadData(req.file.buffer, {
+        async () => {
+          // Simulate a storage delay for testing purposes if the environment variable is set
+          if (process.env.SIMULATE_STORAGE_DELAY === 'true') {
+            await new Promise((resolve) => setTimeout(resolve, 6000));
+          }
+
+          return blockBlobClient.uploadData(req.file.buffer, {
             blobHTTPHeaders: {
               blobContentType: req.file.mimetype,
               blobContentDisposition: 'inline',
             },
-          }),
+          });
+        },
         'Photo upload to Azure Blob Storage exceeded the timeout threshold',
         { operation: 'BlockBlobClient.uploadData', blobName, fileName: req.file.originalname },
         timeout,
@@ -254,6 +275,7 @@ const uploadPhoto = async (req, res) => {
     });
   } catch (err) {
     // console.log(err.message);
+
     res.status(err.statusCode || 500).json({
       status: 'fail',
       message: `${err.message}`,

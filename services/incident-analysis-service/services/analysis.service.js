@@ -1,7 +1,6 @@
 import client from '../util/openai.js';
 
 const loggingServiceUrl = process.env.LOGGING_SERVICE || 'http://logging-service:4005';
-const maxLogs = Number(process.env.MAX_LOGS || 40);
 
 export const fetchLogs = async ({ correlationId }) => {
   if (correlationId) {
@@ -29,14 +28,17 @@ export const buildIncidentPrompt = ({ logs, correlationId }) => {
 
   // Construct the prompt with instructions for the AI model
   const header = [];
-  header.push('Analyse the following distributed application logs to determine what incident occurred.');
+  header.push('Analyse the following incident logs and produce an evidence-based incident analysis.');
   header.push(
-    'Use timestamps, severity levels, events, correlation IDs, messages and metadata when identifying the sequence of events.',
+    'The rootCause field must contain only a concise diagnosis (maximum six words). Do not include explanations in this field.',
   );
   if (correlationId) header.push(`Correlation ID: ${correlationId}`);
 
   header.push(
-    'If the available logs are insufficient to determine a definitive cause, state this clearly and lower your confidence.',
+    'Use the rootCauseExplanation field to explain why the diagnosis was reached using only the supplied log evidence.',
+  );
+  header.push(
+    'For supportingEvidence, provide only the key log entries that directly support the identified root cause. Summarise each entry in one concise sentence. Do not reproduce complete log records or include routine events that do not contribute to the diagnosis. (for example, REQUEST_RECEIVED, REQUEST_ROUTED, or RESPONSE_SENT unless they are directly relevant).',
   );
   header.push('Logs:');
 
@@ -56,14 +58,14 @@ export const callOpenAI = async (prompt) => {
 
   // Call the OpenAI API with the constructed prompt and return the response
   const response = await client.responses.create({
-    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    model: process.env.OPENAI_MODEL,
     input: [
       {
         role: 'system',
         content: [
           {
             type: 'input_text',
-            text: 'You are a Site Reliability Engineer that analyses distributed application logs.',
+            text: 'You are an experienced Site Reliability Engineer analysing centralized logs from a distributed Dockerized application. Analyse incidents using only the information contained in the supplied logs. Base every conclusion on the available evidence. Do not invent missing information or make unsupported assumptions. Clearly distinguish observed evidence from inferred conclusions. If the available logs are insufficient to identify a probable root cause, state this in the rootCauseExplanation and reduce the confidence score accordingly.',
           },
         ],
       },
@@ -77,28 +79,26 @@ export const callOpenAI = async (prompt) => {
         schema: {
           type: 'object',
           properties: {
-            incidentSeverity: { type: 'string', enum: ['LOW', 'HIGH', 'MEDIUM', 'CRITICAL'] },
-            confidence: { type: 'number', minimum: 0, maximum: 1 },
+            confidence: { type: 'integer', minimum: 0, maximum: 100 },
             affectedServices: { type: 'array', items: { type: 'string' } },
             rootCauseService: { type: 'string' },
             summary: { type: 'string' },
             rootCause: { type: 'string' },
+            rootCauseExplanation: { type: 'string' },
             supportingEvidence: { type: 'array', items: { type: 'string' } },
-            timeline: { type: 'array', items: { type: 'string' } },
             recommendations: {
               type: 'array',
               items: { type: 'string' },
             },
           },
           required: [
-            'incidentSeverity',
             'confidence',
             'affectedServices',
             'rootCauseService',
             'summary',
             'rootCause',
+            'rootCauseExplanation',
             'supportingEvidence',
-            'timeline',
             'recommendations',
           ],
           additionalProperties: false,
