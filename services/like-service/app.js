@@ -51,7 +51,7 @@ if (process.env.NODE_ENV === 'development') {
     .then(() => console.log('Like service DB connection successful'))
     .catch((err) => {
       console.log(err.message);
-      process.exit();
+      //process.exit();
     });
 } else if (process.env.NODE_ENV === 'production') {
   const DB = process.env.COSMOS_STRING.replace('<DBNAME>', process.env.MONGO_DB);
@@ -60,7 +60,7 @@ if (process.env.NODE_ENV === 'development') {
     .then(() => console.log('Like service Cosmos DB connection successful'))
     .catch((err) => {
       console.log(err.message);
-      process.exit();
+      //process.exit();
     });
 }
 
