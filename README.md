@@ -1,473 +1,462 @@
-# Microservice Platform
+# LLM-Assisted Incident Analysis Platform
 
-A cloud-native media platform built with Node.js and deployed end-to-end on Microsoft Azure. The system decomposes a media-sharing backend into independently deployable services, each containerised with Docker and orchestrated via Azure Container Apps.
+A containerized microservice platform for **log-centric operational incident analysis** using structured logging, request correlation, and evidence-constrained LLM assistance.
 
-Services communicate through a custom-built API Gateway that centralises JWT verification using RS256 asymmetric signing, keeping individual services stateless and independently scalable.
+The platform extends a Node.js media-sharing application with a centralized observability layer. Operational events are correlated across services, stored centrally, and retrieved by correlation ID so that an LLM can generate structured root-cause analysis, supporting evidence, and recommended actions for human review.
 
-![System Architecture](assets/screenshots/architecture-diagram.png)
+> **Design principle:** AI-generated incident analysis should be traceable back to operational evidence.
 
-_High-level overview of the microservice architecture deployed on Azure._
+## Highlights
 
----
+- Node.js/Express microservice architecture
+- Custom API Gateway with RS256 JWT verification
+- End-to-end request correlation using correlation IDs
+- Centralized structured operational logging
+- Dedicated incident-analysis service using the OpenAI Responses API
+- Strict structured output for predictable downstream handling
+- Human-in-the-loop incident investigation dashboard
+- Reproducible operational failure scenarios
+- Docker Compose environment with MongoDB and Azurite
+- Azure deployment and CI/CD assets retained from the application platform
 
-## Architecture Diagram
-
-```text
-                         ┌──────────────────┐
-                         │     Frontend     │
-                         └────────┬─────────┘
-                                  │
-                                  ▼
-                         ┌──────────────────┐
-                         │   API Gateway    │ ← JWT verification (RS256)
-                         └────────┬─────────┘   Route-based forwarding
-                                  │
-      ┌──────────────┬────────────┼────────────┬
-      ▼              ▼            ▼            ▼
-
-┌──────────┐  ┌──────────┐ ┌──────────┐ ┌──────────┐
-│   Auth   │  │ Comment  │ │   Like   │ │  Photo   │
-│ Service  │  │ Service  │ │ Service  │ │ Service  │
-└────┬─────┘  └────┬─────┘ └────┬─────┘ └────┬─────┘
-     │             │            │            │
-     └─────────────┴────────────┴────────────┘
-                          │
-            ┌─────────────┴─────────────┐
-            ▼                           ▼
-
-     ┌──────────────┐         ┌────────────────┐
-     │ Azure Cosmos │         │ Azure Blob     │
-     │ DB (MongoDB) │         │ Storage        │
-     └──────────────┘         └────────────────┘
-```
-
-## Database Design
-
-Services currently share a single Cosmos DB instance. In production, a database-per-service pattern would improve autonomy and reduce coupling — a deliberate tradeoff to keep operational complexity low while the focus was on service decomposition and deployment.
-
-### Request Flow
+## Architecture
 
 ```text
-Client
-   │
-   ▼
-Frontend
-   │
-   ▼
-API Gateway
-   │
-   ├── Auth Service
-   ├── Comment Service
-   ├── Like Service
-   └── Photo Service
+                         ┌─────────────────────┐
+                         │      Frontend       │
+                         │       :3000         │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │     API Gateway     │
+                         │       :4000         │
+                         │                     │
+                         │ JWT verification    │
+                         │ Correlation ID      │
+                         │ Request routing     │
+                         └──────────┬──────────┘
+                                    │
+           ┌────────────┬───────────┼───────────┬────────────┐
+           ▼            ▼           ▼           ▼
+      ┌─────────┐  ┌─────────┐ ┌─────────┐ ┌─────────┐
+      │  Auth   │  │ Comment │ │  Like   │ │  Photo  │
+      │ :4001   │  │ :4002   │ │ :4003   │ │ :4004   │
+      └────┬────┘  └────┬────┘ └────┬────┘ └────┬────┘
+           │            │           │           │
+           └────────────┴───────────┴───────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+               ┌─────────┐         ┌─────────┐
+               │ MongoDB │         │ Azurite │
+               └─────────┘         └─────────┘
+                    ▲
+                    │ structured logs
+                    │
+             ┌──────┴───────────┐
+             │ Logging Service  │
+             │      :4005       │
+             └──────┬───────────┘
+                    │ correlated evidence
+                    ▼
+          ┌─────────────────────────┐
+          │ Incident Analysis       │
+          │ Service :4006           │
+          └───────────┬─────────────┘
+                      │
+                      ▼
+               ┌─────────────┐
+               │ OpenAI LLM  │
+               └──────┬──────┘
+                      │ structured analysis
+                      ▼
+          ┌─────────────────────────┐
+          │ Incident Dashboard      │
+          │        :3001            │
+          └─────────────────────────┘
 ```
 
-The API Gateway acts as the single entry point into the backend and is responsible for request routing and JWT validation.
+### Incident-analysis flow
 
----
+```text
+Client request
+    ↓
+API Gateway assigns / propagates correlation ID
+    ↓
+Request traverses application services
+    ↓
+Services emit structured operational events
+    ↓
+Logging Service stores correlated logs
+    ↓
+Incident Analysis Service retrieves evidence by correlation ID
+    ↓
+Evidence-constrained prompt is sent to the LLM
+    ↓
+Structured diagnosis is returned
+    ↓
+Investigator reviews the analysis and supporting evidence
+```
+
+The LLM is used as a **decision-support component**, not as an autonomous remediation system.
 
 ## Services
 
-| Service         | Responsibility                                          | Port   |
-| --------------- | ------------------------------------------------------- | ------ |
-| API Gateway     | Request routing, JWT verification, auth enforcement     | `4000` |
-| Auth Service    | User login, JWT issuance (RS256)                        | `4001` |
-| Photo Service   | File upload, validation, Azure Blob Storage integration | `4004` |
-| Comment Service | Create and retrieve comments                            | `4002` |
-| Like Service    | Like/unlike content, engagement tracking                | `4003` |
-| Frontend        | Server-rendered UI (Pug), client-side content filtering | `3000` |
+| Component | Responsibility | Port |
+|---|---|---:|
+| Frontend | Server-rendered application UI | `3000` |
+| Incident Dashboard | Log inspection and incident-analysis UI | `3001` |
+| API Gateway | Routing, JWT verification, auth enforcement, correlation-ID propagation | `4000` |
+| Auth Service | User authentication and RS256 JWT issuance | `4001` |
+| Comment Service | Comment operations | `4002` |
+| Like Service | Like/unlike operations | `4003` |
+| Photo Service | File validation, upload, and blob-storage integration | `4004` |
+| Logging Service | Central ingestion and retrieval of structured logs | `4005` |
+| Incident Analysis Service | Correlated-log retrieval and LLM-assisted analysis | `4006` |
+| MongoDB | Application data and operational log persistence | `27017` |
+| Azurite | Local Azure Blob Storage emulation | `10000` |
 
----
+## Structured Logging
 
-## API Reference
-
-All requests route through the gateway at `{{GATEWAY_BASE_URL}}:4000`. Protected routes require a `Bearer` token in the `Authorization` header or JWT cookie.
-
-### Authentication Service
-
-| Method | Endpoint | Auth | Description                    |
-| ------ | -------- | ---- | ------------------------------ |
-| `POST` | `/auth`  | None | Authenticate user, returns JWT |
-
-**Login response:**
+Services emit normalized operational events containing fields such as:
 
 ```json
 {
-  "status": "success",
-  "token": "eyJhbGciOiJSUzI1NiIs...",
-  "data": {
-     "user":{
-       "_id": "6a29a9...",
-       "firstName": "John",
-       ...
-     }
+  "timestamp": "2026-08-01T10:32:15.112Z",
+  "service": "photo-service",
+  "severity": "ERROR",
+  "event": "OPERATION_TIMEOUT",
+  "correlationId": "cf5982a2-26d8-4f95-...",
+  "message": "Photo upload operation timed out",
+  "metadata": {
+    "operation": "blob-upload"
   }
 }
 ```
 
----
+| Field | Purpose |
+|---|---|
+| `timestamp` | When the event occurred |
+| `service` | Service that emitted the event |
+| `severity` | `INFO`, `WARN`, or `ERROR` |
+| `event` | Standardized machine-readable event name |
+| `correlationId` | Links events belonging to the same request |
+| `message` | Human-readable description |
+| `metadata` | Additional structured context |
 
-### Comment Service
+Correlation IDs allow an investigation to reconstruct a request across service boundaries instead of relying on timestamps alone.
 
-| Method | Endpoint            | Auth     | Description              |
-| ------ | ------------------- | -------- | ------------------------ |
-| `POST` | `/comment`          | Required | Add comment to a photo   |
-| `GET`  | `/comment/:photoId` | Required | Get comments for a photo |
+## LLM-Assisted Analysis
 
----
+The Incident Analysis Service retrieves the logs associated with a supplied correlation ID and sends only that evidence to the configured model.
 
-### Like Service
+The response is constrained to a structured format containing fields including:
 
-| Method | Endpoint         | Auth     | Description              |
-| ------ | ---------------- | -------- | ------------------------ |
-| `POST` | `/like/:photoId` | Required | Like a photo             |
-| `GET`  | `/like/:photoId` | Required | Get all likes of a photo |
+```json
+{
+  "confidence": 95,
+  "affectedServices": ["photo-service"],
+  "rootCauseService": "photo-service",
+  "summary": "Photo upload failed while interacting with storage.",
+  "rootCause": "Storage operation timeout",
+  "supportingEvidence": [
+    "PHOTO_UPLOAD_STARTED was recorded for the request.",
+    "OPERATION_TIMEOUT was later recorded for the same correlation ID."
+  ],
+  "recommendations": [
+    "Verify storage availability and connectivity.",
+    "Review timeout thresholds and dependency latency."
+  ]
+}
+```
 
----
+The service is designed to:
 
-### Photo Service
+1. ground conclusions in retrieved operational evidence;
+2. return predictable structured output for the dashboard;
+3. surface supporting evidence alongside the diagnosis; and
+4. keep final operational judgement with the investigator.
 
-| Method | Endpoint           | Auth     | Description        |
-| ------ | ------------------ | -------- | ------------------ |
-| `POST` | `/upload`          | Required | Upload media file  |
-| `GET`  | `/upload`          | Required | List all photos    |
-| `GET`  | `/upload/:photoId` | Required | List photo details |
+Model-generated confidence is treated as an indicator rather than a calibrated probability.
 
----
+## Example Incident Investigation
+
+The example below shows a controlled JWT-generation failure. Events from the
+gateway and authentication service are linked by the same correlation ID,
+allowing the analysis service to reconstruct the failure path and generate an
+evidence-backed diagnosis.
+
+![Example incident investigation](assets/screenshots/incident-analysis-example.png)
+
+**Observed failure path:**  
+`REQUEST_RECEIVED` → `REQUEST_ROUTED` → `JWT_GENERATION_FAILED` → `DOWNSTREAM_SERVICE_ERROR`
+
+The analysis identifies `auth-service` as the root-cause service and traces the
+failure to the missing RS256 signing key referenced in the operational logs.
+
+## API Endpoints
+
+### Logging Service — `http://localhost:4005/api/v1`
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/logs` | Store a structured log event |
+| `GET` | `/logs` | Retrieve logs |
+| `GET` | `/logs/search` | Search stored logs |
+| `GET` | `/logs/:correlationId` | Retrieve logs for one correlation ID |
+
+### Incident Analysis Service — `http://localhost:4006/api/v1`
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/analysis` | Analyse an incident using its correlation ID |
+
+Example request:
+
+```json
+{
+  "correlationId": "cf5982a2-26d8-4f95-..."
+}
+```
+
+The application-facing Auth, Comment, Like, and Photo routes continue to be exposed through the API Gateway.
+
+## Validation Scenarios
+
+The platform includes **11 reproducible operational failure scenarios** covering authentication, database access, service exceptions, storage failures, and input validation.
+
+| ID | Scenario |
+|---|---|
+| `A1` | Unknown username |
+| `A2` | Invalid password |
+| `A3` | JWT generation failure |
+| `D1` | Authentication database failure |
+| `D2` | Photo database failure |
+| `D3` | Comment database failure |
+| `D4` | Like database failure |
+| `C1` | Service exception |
+| `T1` | Blob upload timeout |
+| `S1` | Azurite/storage dependency failure |
+| `V1` | Unsupported file type |
+
+Across these controlled scenarios, the analysis pipeline scored **52/55 (94.5%) against a predefined incident-analysis rubric** covering affected-service identification, root-cause identification, supporting evidence, and recommendations.
+
+This result applies to the controlled scenario set and should not be interpreted as general-purpose LLM accuracy.
 
 ## Technology Stack
 
-| Layer            | Technology                                 |
-| ---------------- | ------------------------------------------ |
-| Runtime          | Node.js + Express.js                       |
-| Auth             | JSON Web Tokens — RS256 asymmetric signing |
-| Database         | Azure Cosmos DB (MongoDB-compatible API)   |
-| Media storage    | Azure Blob Storage                         |
-| Containerisation | Docker                                     |
-| Hosting          | Azure Container Apps                       |
-| CI/CD            | Azure DevOps + Docker Hub                  |
-| Monitoring       | Azure Application Insights                 |
-| Templating       | Pug                                        |
-
----
-
-## Deployment Flow
-
-```text
-Git Push
-    ↓
-Azure DevOps
-    ↓
-Docker Build
-    ↓
-Docker Hub
-    ↓
-Azure Container Apps
-```
-
----
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js |
+| Backend | Express.js |
+| Frontend templating | Pug |
+| Authentication | JWT with RS256 asymmetric signing |
+| Application database | MongoDB / Azure Cosmos DB MongoDB API |
+| Operational log store | MongoDB |
+| Local blob storage | Azurite |
+| Cloud blob storage | Azure Blob Storage |
+| LLM integration | OpenAI Responses API |
+| Containerisation | Docker |
+| Local orchestration | Docker Compose |
+| Cloud deployment assets | Azure Container Apps |
+| CI/CD | Azure DevOps + Docker Hub |
+| Cloud monitoring assets | Azure Application Insights / Log Analytics |
 
 ## Engineering Decisions
 
-**RS256 over HS256 for JWT signing**
-Asymmetric signing means the private key lives only in the Auth Service. All other services verify tokens using the public key — no shared secret distributed across the system.
+### Correlation at the API boundary
 
-**Custom API Gateway over a managed solution**
-Building the gateway in Express gave precise control over routing logic and JWT middleware. It enforces auth at the network boundary so individual services remain stateless and don't duplicate verification logic.
+The Gateway creates or propagates a correlation ID before forwarding requests. Downstream services include the same identifier in their structured events, providing a deterministic way to reconstruct an incident across service boundaries.
 
-**Cosmos DB with MongoDB-compatible API**
-Using the MongoDB-compatible interface avoids locking data access patterns to a vendor-specific query API, while still benefiting from Cosmos DB's managed scaling and global distribution.
+### Centralized structured logging
 
-**Externalised media storage (Azure Blob)**
-Storing media outside the application tier keeps services stateless and avoids disk I/O coupling between the photo service and its replicas.
+Operational events are sent to a dedicated Logging Service instead of being treated as isolated console output. Standard fields make the evidence searchable, machine-readable, and suitable for automated analysis.
 
-**Stateless services and replica-based scaling**
-Because JWT verification is handled at the gateway and media is stored in Azure Blob, no service holds local state. This means any service can be horizontally scaled by adding replicas on Azure Container Apps without session affinity or shared disk concerns.
+### Evidence-constrained LLM use
 
-**Synchronous HTTP between services**
-Chosen for simplicity at this scale. The tradeoff is tighter temporal coupling — a downstream service outage stalls the caller. An event-driven approach (message queue) would be preferable at higher throughput.
+The model receives correlated logs rather than unrestricted application context. Structured output makes the result easier to validate, display, and consume programmatically.
 
----
+### Human-in-the-loop operation
+
+The platform generates diagnostic support and recommendations but does not automatically remediate incidents. This keeps operational decisions with the investigator.
+
+### RS256 authentication
+
+The Auth Service holds the private signing key while other components can verify tokens using the public key. This avoids distributing a shared JWT signing secret.
+
+### Local reproducibility
+
+MongoDB and Azurite allow the full application and incident-analysis workflow to be reproduced with Docker Compose without requiring live Azure infrastructure.
 
 ## Repository Structure
 
 ```text
-microservices-platform/
+llm-incident-analysis-platform/
 ├── frontend/
 ├── gateway/
+├── incident-dashboard/
 ├── services/
 │   ├── auth-service/
 │   ├── comment-service/
 │   ├── like-service/
-│   └── photo-service/
+│   ├── photo-service/
+│   ├── logging-service/
+│   └── incident-analysis-service/
+├── docs/
+│   ├── events.md
+│   └── incident-corpus.md
 ├── assets/
 │   └── screenshots/
+├── mongodb-backup/
 ├── docker-compose.yml
 ├── azure-pipelines.yml
 └── README.md
 ```
 
----
+> Internal development notes are intentionally excluded from the published documentation.
 
-## JWT Key Configuration
-
-The platform uses RS256. Generate a key pair before running locally:
-
-Generate the keys:
-
-```bash
-openssl genpkey -algorithm RSA -out jwt_rsa -pkeyopt rsa_keygen_bits:2048
-openssl rsa -pubout -in private.pem -out jwt_rsa.pub
-```
-
-Place the generated files in `keys/` at the root directory of the mono repo:
-
-```text
-microservice-platform/
-├── keys/
-    ├── jwt_rsa
-    └── jwt_rsa.pub
-```
-
-Reference the keys/ path in each service's .env and .env.docker file via the JWT_PRIVATE_KEY_PATH / JWT_PUBLIC_KEY_PATH variables."
-The application loads these files at startup for JWT signing and verification.
-
-> Important: Do not commit `jwt_rsa` to version control.
-
----
-
-### Environment Variables
-
-Each service is configured via environment variables. Copy the example files and fill in values:
-
-```bash
-cp services/auth-service/.env.example services/auth-service/.env
-# repeat for each service
-```
-
-| Variable                         | Description                                    |
-| -------------------------------- | ---------------------------------------------- |
-| `COSMOS_CONNECTION_STRING`       | Azure Cosmos DB connection string              |
-| `BLOB_STORAGE_CONNECTION_STRING` | Azure Blob Storage connection string           |
-| `JWT_PRIVATE_KEY_PATH`           | Path to `jwt_rsa` (Auth Service only)          |
-| `JWT_PUBLIC_KEY_PATH`            | Path to `jwt_rsa.pub`                          |
-| `FRONTEND_URL`                   | URL used to access the frontend                |
-| `NODE_ENV`                       | use `development` for local install and docker |
-
-For docker:
-
-```bash
-cp services/auth-service/.env.example services/auth-service/.env.docker
-# repeat for each service
-```
-
----
-
-## Cloud Deployment
-
-The platform is deployed on Microsoft Azure using a container-based architecture.
-
-### Azure Services Used
-
-| Service              | Purpose                         |
-| -------------------- | ------------------------------- |
-| Azure Container Apps | Hosting microservices           |
-| Azure Cosmos DB      | Application data storage        |
-| Azure Blob Storage   | Media storage                   |
-| Docker Hub           | Container image registry        |
-| Azure Log Analytics  | Monitoring and diagnostics      |
-| Azure DevOps         | Build and deployment automation |
-
----
-
-## Screenshots
-
-### Login & Authentication
-
-![Login Page](assets/screenshots/login-page.png)
-
----
-
-### Home Feed
-
-![Home Feed](assets/screenshots/home-feed.png)
-
----
-
-### Upload Functionality
-
-![Upload Service](assets/screenshots/upload.png)
-
----
-
-### Comment and Like Functionality
-
-![Comment Service](assets/screenshots/comment-like.png)
-
----
-
-## Azure Deployment Screenshots
-
-### Azure Container Apps
-
-![Azure Container Apps](assets/screenshots/azure-container-apps.png)
-
-_Independent deployment of microservices using Azure Container Apps._
-
----
-
-### Azure Cosmos DB
-
-![Azure Cosmos DB](assets/screenshots/azure-cosmosdb.png)
-
-_Application metadata and user information stored in Azure Cosmos DB._
-
----
-
-### Azure Blob Storage
-
-![Azure Blob Storage](assets/screenshots/azure-blob-storage.png)
-
-_Cloud storage for uploaded media assets._
-
----
-
-### Azure App Insights
-
-![Azure Log Analytics](assets/screenshots/azure-app-insights.png)
-
-_Application Insights integration._
-
----
-
-### Azure DevOps Pipeline
-
-![Azure DevOps Pipeline](assets/screenshots/azure-devops-pipeline.png)
-
-_Build and deployment automation workflow._
-
-### Docker Hub Registry
-
-![Docker Hub](assets/screenshots/docker-hub-repositories.png)
-
-> Container images are versioned and published automatically through Azure DevOps
-
----
-
-## Local Development
+## Local Setup
 
 ### Prerequisites
 
-- Node.js `24.12.0`
-- MongoDB (local instance or Docker)
-- Docker
-- Azurite (Azure Storage Emulator)
+- Docker / Docker Desktop
+- OpenSSL
+- An OpenAI API key for live LLM analysis
 
-### Clone Repository
-
-```bash
-git clone https://github.com/ktasie/microservices-platform.git
-cd microservices-platform
-```
-
-### Install Dependencies
-
-Run for each service:
+### 1. Clone the repository
 
 ```bash
-cd services/auth-service && npm install
-cd ../comment-service && npm install
-cd ../like-service && npm install
-cd ../photo-service && npm install
-cd ../../gateway && npm install
-cd ../frontend && npm install
+git clone https://github.com/ktasie/llm-incident-analysis-platform.git
+cd llm-incident-analysis-platform
 ```
 
-### Start Local Infrastructure
-
-Start MongoDB and Azurite.
-
-### Run Services
+### 2. Generate JWT keys
 
 ```bash
-npm run start
+openssl genpkey -algorithm RSA -out jwt_rsa -pkeyopt rsa_keygen_bits:2048
+openssl rsa -pubout -in jwt_rsa -out jwt_rsa.pub
 ```
 
-or
+Create a root-level `keys/` directory and place both files inside it:
 
-```bash
-node app.js
+```text
+keys/
+├── jwt_rsa
+└── jwt_rsa.pub
 ```
 
-Each microservice must be started independently.
+> Never commit the private `jwt_rsa` key.
 
-### For Docker setup
+### 3. Configure environment files
 
-Use the root-level `docker-compose.yml` to start all services together:
+Each component provides an `.env.example`. Create the corresponding `.env.docker` files required by `docker-compose.yml` and set the necessary values.
+
+The Incident Analysis Service expects configuration including:
+
+```env
+NODE_ENV=development
+PORT=4006
+LOGGING_SERVICE=http://logging-service:4005
+OPENAI_API_KEY=your-api-key
+OPENAI_MODEL=gpt-5.5
+OPENAI_TEMPERATURE=0
+MAX_LOGS=40
+MOCK_OPENAI=false
+```
+
+Do not commit API keys, connection strings, or private JWT material.
+
+### 4. Start the stack
 
 ```bash
 docker compose up --build
 ```
 
-### Load Seeders
+Main local endpoints:
 
-To populate the database with initial data for local development:
+| Component | URL |
+|---|---|
+| Application | `http://localhost:3000` |
+| Incident Dashboard | `http://localhost:3001` |
+| API Gateway | `http://localhost:4000` |
+| Logging Service | `http://localhost:4005` |
+| Incident Analysis Service | `http://localhost:4006` |
 
-**Without Docker:**
-
-```bash
-cd services/auth-service/
-node seed-users.js
-```
-
-**With docker:**
+### 5. Seed local users
 
 ```bash
 docker compose exec auth-service node seed-users.js
 ```
 
----
+### 6. Stop the stack
 
-### Default Credentials
+```bash
+docker compose down
+```
 
-Navigate to your web browser and type `http://{{FRONTEND_URL}}:3000/`. Use the credentials below to login.
+Use `docker compose down -v` if you also want to remove persistent MongoDB and Azurite volumes.
 
-| Role          | User                   | Password      |
-| ------------- | ---------------------- | ------------- |
-| Administrator | `john.doe@example.com` | `StrongPass`  |
-| Normal User   | `ktasie@example.com`   | `AnotherPass` |
+## Screenshots
 
-> These credentials are for local development only. Never use default credentials in a production environment.
+A small number of screenshots is more useful here than a long gallery.
 
----
+### Application
+
+![Home feed](assets/screenshots/home-feed.png)
+
+![Upload functionality](assets/screenshots/upload.png)
+
+### Cloud deployment
+
+![Azure Container Apps](assets/screenshots/azure-container-apps.png)
+
+![Azure DevOps pipeline](assets/screenshots/azure-devops-pipeline.png)
+
+
+
+## Cloud Deployment Assets
+
+The repository retains deployment assets from the Azure-hosted application architecture:
+
+- Azure Container Apps
+- Azure Cosmos DB
+- Azure Blob Storage
+- Azure Application Insights / Log Analytics
+- Azure DevOps
+- Docker Hub
+
+The full logging and LLM-assisted incident-analysis workflow is reproduced locally through Docker Compose.
 
 ## CI/CD
 
-Defined in `azure-pipelines.yml`. On push to `main`:
+`azure-pipelines.yml` contains the Azure DevOps pipeline used to build container images, publish them to Docker Hub, and update Azure Container Apps.
 
-1. Source pulled from repository
-2. Docker image built per service
-3. Image pushed to Docker Hub
-4. Azure Container Apps updated
+```text
+Git push
+   ↓
+Azure DevOps
+   ↓
+Docker build
+   ↓
+Docker Hub
+   ↓
+Azure Container Apps
+```
 
----
+## Current Limitations
 
-## Monitoring & Observability
+| Area | Current implementation | Possible extension |
+|---|---|---|
+| Evidence | Centralized logs | Add traces and metrics |
+| Incident complexity | Controlled single-fault scenarios | Concurrent and multi-causal failures |
+| LLM evaluation | One configured model | Multi-model comparison and calibration |
+| Orchestration | Docker Compose | Kubernetes or managed orchestration |
+| Remediation | Human decision-making | Approval-gated remediation workflows |
+| Testing | Prototype-focused | Broader unit, integration, contract, and fault-injection coverage |
 
-Operational visibility is provided through Application Insights. This is accessible via the Azure portal after deployment.
+## Author
 
----
+**Kelechukwu Tasie**
 
-## Known Tradeoffs
-
-| Area                  | Current state                      | Better approach at scale                                           |
-| --------------------- | ---------------------------------- | ------------------------------------------------------------------ |
-| Service communication | Synchronous HTTP                   | Message queue (e.g. Azure Service Bus) for async decoupling        |
-| Search / filtering    | Client-side filtering              | Dedicated search index (e.g. Azure Cognitive Search)               |
-| Testing               | No automated tests                 | Unit tests per service + contract tests at the gateway boundary    |
-| Observability         | Log Analytics + basic App Insights | Distributed tracing (e.g. OpenTelemetry) across service boundaries |
-| Deployment            | Single-region                      | Multi-region with Azure Front Door + WAF                           |
-
----
-
-**Kelechukwu Tasie** · [github.com/ktasie/microservices-platform](https://github.com/ktasie/microservices-platform)
+GitHub: [@ktasie](https://github.com/ktasie)

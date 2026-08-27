@@ -1,6 +1,9 @@
 # Keys
 Keys
 
+# Docs. Used for internal documentation, not for public consumption.
+docs
+
 # Logs
 logs
 *.log
